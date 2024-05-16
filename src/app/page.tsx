@@ -1,113 +1,188 @@
+"use client";
+
+import { User, sendEmailVerification, signOut } from "firebase/auth";
+import { auth, db, dbr, storage } from "../../firebase";
+import { toast } from "react-toastify";
+import { useEffect, useState } from "react";
+import axios from "axios";
+import { addDoc, collection, doc, getDocs } from "firebase/firestore";
+import dayjs from "dayjs";
+import { ref } from "firebase/database";
+import {
+  getDownloadURL,
+  ref as refStorage,
+  uploadBytes,
+} from "firebase/storage";
 import Image from "next/image";
 
 export default function Home() {
+  async function handleSignOut() {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  async function onVerifyEmail() {
+    await sendEmailVerification(auth.currentUser as User);
+    toast.success("Verification link has been sent to your email address");
+  }
+
+  const [createPostForm, createPostFormSet] = useState<{
+    postMessage: string;
+    postImgFile: FileList | undefined;
+  }>({
+    postMessage: "",
+    postImgFile: undefined,
+  });
+
+  const [allPosts, allPostsSet] = useState<any[]>([]);
+
+  async function getPosts() {
+    try {
+      const ref = collection(db, "post");
+      const docs = await getDocs(ref);
+
+      let sample = [];
+      for (let x of docs.docs) {
+        if (!x.exists()) return;
+        sample.push(x.data());
+      }
+      allPostsSet(sample);
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  async function sendDataToDB(imgUrl?: string) {
+    const ref = collection(db, "post");
+    await addDoc(ref, {
+      postMessage: createPostForm.postMessage,
+      postImgUrl: imgUrl || "",
+      ownerUID: auth.currentUser?.uid,
+      createdAt: dayjs().format(),
+    });
+    createPostFormSet({
+      postMessage: "",
+      postImgFile: undefined,
+    });
+    await getPosts();
+  }
+
+  async function handleSendPost() {
+    try {
+      // console.log(createPostForm)
+      if (createPostForm.postImgFile) {
+        const storageRef = refStorage(
+          storage,
+          `/post/${createPostForm.postImgFile[0]?.name}`
+        );
+        await uploadBytes(storageRef, createPostForm.postImgFile[0]);
+        const url = await getDownloadURL(storageRef);
+        sendDataToDB(url);
+      } else {
+        // theres no image on the post
+        sendDataToDB();
+      }
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  useEffect(() => {
+    getPosts();
+  }, []);
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-between p-24">
-      <div className="z-10 w-full max-w-5xl items-center justify-between font-mono text-sm lg:flex">
-        <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
-          Get started by editing&nbsp;
-          <code className="font-mono font-bold">src/app/page.tsx</code>
-        </p>
-        <div className="fixed bottom-0 left-0 flex h-48 w-full items-end justify-center bg-gradient-to-t from-white via-white dark:from-black dark:via-black lg:static lg:size-auto lg:bg-none">
-          <a
-            className="pointer-events-none flex place-items-center gap-2 p-8 lg:pointer-events-auto lg:p-0"
-            href="https://vercel.com?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            By{" "}
-            <Image
-              src="/vercel.svg"
-              alt="Vercel Logo"
-              className="dark:invert"
-              width={100}
-              height={24}
-              priority
+      <h1 className="mb-5 font-sans text-xl font-bold">Welcome {auth?.currentUser?.displayName}</h1>
+
+      {!auth.currentUser?.emailVerified && (
+        <div className="bg-yellow-500 p-4 cursor-pointer rounded-lg">
+          <p onClick={onVerifyEmail} className="text-white">
+            Please verify your email by clicking here
+          </p>
+        </div>
+      )}
+
+      <div className="flex flex-col items-end gap-4 bg-gray-100 p-4 rounded-lg shadow-md w-[500px] mb-3">
+        <textarea
+          onChange={({ target: { value } }) =>
+            createPostFormSet((prev) => ({ ...prev, postMessage: value }))
+          }
+          value={createPostForm.postMessage}
+          placeholder="What's happening?"
+          className="text-black resize-none w-full py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+        <input
+          onChange={(e) =>
+            createPostFormSet((prev) => ({
+              ...prev,
+              postImgFile: e.target?.files as FileList,
+            }))
+          }
+          id="post-upload"
+          className="hidden"
+          type="file"
+        />
+        {createPostForm.postImgFile && (
+          <div className="preview-container">
+            <img
+              className="preview-image w-auto h-[100px] rounded-lg justify-center"
+              src={URL.createObjectURL(createPostForm.postImgFile[0])}
+              alt="Preview"
             />
-          </a>
+          </div>
+        )}
+        <div className="flex justify-end items-center gap-4">
+          <button
+            onClick={() => document.getElementById("post-upload")?.click()}
+            className="btn bg-blue-400 hover:bg-blue-500 text-white px-4 py-2 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-400"
+          >
+            Upload Image
+          </button>
+          <button
+            onClick={handleSendPost}
+            className="btn bg-blue-400 hover:bg-blue-500 text-white px-4 py-2 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-400"
+          >
+            Send
+          </button>
         </div>
       </div>
 
-      <div className="relative z-[-1] flex place-items-center before:absolute before:h-[300px] before:w-full before:-translate-x-1/2 before:rounded-full before:bg-gradient-radial before:from-white before:to-transparent before:blur-2xl before:content-[''] after:absolute after:-z-20 after:h-[180px] after:w-full after:translate-x-1/3 after:bg-gradient-conic after:from-sky-200 after:via-blue-200 after:blur-2xl after:content-[''] before:dark:bg-gradient-to-br before:dark:from-transparent before:dark:to-blue-700 before:dark:opacity-10 after:dark:from-sky-900 after:dark:via-[#0141ff] after:dark:opacity-40 sm:before:w-[480px] sm:after:w-[240px] before:lg:h-[360px]">
-        <Image
-          className="relative dark:drop-shadow-[0_0_0.3rem_#ffffff70] dark:invert"
-          src="/next.svg"
-          alt="Next.js Logo"
-          width={180}
-          height={37}
-          priority
-        />
+
+      <div className="grid grid-cols-1 gap-4 mt-6 w-full max-w-lg">
+  {allPosts?.map((item, i) => (
+    <div key={i} className="bg-white shadow-md rounded-xl p-4">
+      <div className="flex items-center mb-2">
+        <p className="text-xs text-gray-500">{dayjs(item.createdAt).format('YYYY-MM-DD HH:mm:ss')}</p>
       </div>
+      {item?.postImgUrl && (
+        <div className="aspect-w-16 aspect-h-9 mb-4">
+          <Image
+            alt="img"
+            className="w-full h-full object-cover rounded-lg"
+            src={item?.postImgUrl}
+            width={300}
+            height={300}
+          />
+        </div>
+      )}
+      <h3 className="text-lg font-medium text-black">{item?.postMessage}</h3>
+    </div>
+  ))}
+</div>
 
-      <div className="mb-32 grid text-center lg:mb-0 lg:w-full lg:max-w-5xl lg:grid-cols-4 lg:text-left">
-        <a
-          href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Docs{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Find in-depth information about Next.js features and API.
-          </p>
-        </a>
 
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Learn{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Learn about Next.js in an interactive course with&nbsp;quizzes!
-          </p>
-        </a>
 
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Templates{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Explore starter templates for Next.js.
-          </p>
-        </a>
+      <button
+        className="btn bg-blue-400 hover:bg-blue-500 text-white px-4 py-2 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-400 mt-6"
+        onClick={handleSignOut}
+      >
+        Sign Out
+      </button>
 
-        <a
-          href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Deploy{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-balance text-sm opacity-50">
-            Instantly deploy your Next.js site to a shareable URL with Vercel.
-          </p>
-        </a>
-      </div>
     </main>
   );
 }
